@@ -1,0 +1,43 @@
+# ─── Dependencies ───
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Builds ───
+dist/
+build/
+out/
+.frontend/dist/
+frontend/dist/
+
+# ─── Cloudflare / Wrangler ───
+.wrangler/
+.dev.vars
+wrangler/*.json
+
+# ─── Env & secrets (NEVER commit real secrets) ───
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# ─── Logs ───
+logs/
+*.log
+npm-debug.log*
+
+# ─── OS / editors ───
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ─── Test / coverage ───
+coverage/
+.nyc_output/
+
+# ─── Misc ───
+*.sqlite
+*.sqlite3
+.mise.toml

@@ -1,0 +1,51 @@
+# ═══════════════════════════════════════════════════════════════
+#  loop v2 — Cloudflare Workers configuration
+#  Workers + Hono + D1 + Cron Triggers + Telegram webhook
+# ═══════════════════════════════════════════════════════════════
+
+name = "loop-agent"
+main = "src/index.ts"
+compatibility_date = "2024-09-25"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Cron : boucle quotidienne de l'agent ──────────────────────
+# Spec §4 : scan F1 toutes les 6h. KPI chaque soir à 21h (Paris ≈ 19h UTC
+# en été / 20h UTC en hiver — on prend 20h00 UTC toute l'année).
+[triggers]
+crons = [
+  "0 */6 * * *",  # scan F1 : 00h, 06h, 12h, 18h UTC
+  "0 20 * * *",   # KPI quotidien + rapport Telegram du soir
+]
+
+# ── Base D1 ───────────────────────────────────────────────────
+[[d1_databases]]
+binding = "DB"
+database_name = "loop-db"
+database_id = "REPLACE_ME_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "migrations"
+
+# ── Variables publiques (non secrètes) ────────────────────────
+[vars]
+ENVIRONMENT = "production"
+DAILY_SPEND_LIMIT_USDC = "1"
+F2_MIN_MARGIN_EUR = "15"
+F2_LITIGATION_RESERVE_RATE = "0.10"
+SCAN_TOP_N = "5"
+X402_BAZAAR_URL = "https://bazaar.example.com"
+
+# ── Secrets (via `wrangler secret put …`, JAMAIS ici) ──────────
+# TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_CHAT_ID, TELEGRAM_WEBHOOK_SECRET,
+# SPEND_PRIVATE_KEY, GITHUB_TOKEN, ALGORA_API_KEY, GITCOIN_API_KEY,
+# DEWORK_API_KEY, RENTAHUMAN_API_KEY
+
+# ── Environnements ────────────────────────────────────────────
+[env.dev]
+name = "loop-agent-dev"
+[env.dev.vars]
+ENVIRONMENT = "dev"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "loop-db-dev"
+database_id = "REPLACE_ME_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "migrations"
