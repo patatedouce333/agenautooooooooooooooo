@@ -1,0 +1,130 @@
+================================================================================
+ PASSATION — loop v2.0 : agent chasseur de missions + arbitrage humain
+================================================================================
+ Date de passation : 24 septembre 2026
+ Depot             : patatedouce333/agenautooooooooooooooo
+ Branche           : arena/01a0d3f2-agenautooooooooooooooo
+ Pull Request      : https://github.com/patatedouce333/agenautooooooooooooooo/pull/1 (base: main)
+ Spec de reference : loop-spec-v2-logique-metier.md (v2.0, 24/09/2026)
+ Statut            : implemente, teste (48/48 OK), documente, pret a deployer (J0 = 0 EUR)
+
+--------------------------------------------------------------------------------
+ 0. RESUME EXECUTIF (lire en 2 minutes)
+--------------------------------------------------------------------------------
+ MISSION UNIQUE : maximiser le revenu encaisse par jour.
+
+ Deux fonctions, rien d'autre :
+   F1 — CHASSEUR-EXECUTEUR : l'agent scanne des sources autorisees, trouve des
+        taches faisables par un agent (code, data, R&D, redaction, audit),
+        les execute, livre, encaisse (USDC x402 / crypto bounties / fiat).
+   F2 — ARBITRAGE HUMAIN   : l'agent trouve une mission exigeant un humain,
+        recrute un freelance, encaisse la difference
+        (marge = client - freelance - frais - reserve litige - controle).
+
+ Boucle quotidienne : scan (cron 6h) -> scoring -> top-5 propose sur Telegram
+ -> validation humaine legere -> execution ou recrutement -> encaissement ->
+ rapport KPI chaque soir (20h UTC).
+
+ Garanties dures : plafonds SPEND, matrice ToS enforcee cote serveur, freeze
+ immediat, timeout HITL = refus, anti self-dealing, et AUCUN TRADING
+ (ni live ni paper — verrouille par tests statiques).
+
+--------------------------------------------------------------------------------
+ 1. STACK TECHNIQUE (toutes les technos)
+--------------------------------------------------------------------------------
+ BACKEND (dossier racine : package.json)
+   - Runtime      : Cloudflare Workers (léger, permanent, cron natif, 0 EUR)
+   - Framework    : Hono ^4.6 (routeur HTTP typé, validé Workers)
+   - Validation   : Zod ^3 (tous les payloads API + webhooks)
+   - Base         : Cloudflare D1 (SQLite relationnel, migrations versionnees)
+   - Langage      : TypeScript ^5.6 strict (tsc --noEmit doit passer)
+   - Tests        : Vitest ^2 + FakeD1 maison (tests/support/fake-d1.ts) qui
+                    simule D1 en memoire (motifs SQL reels du code)
+   - Dev/deploy   : Wrangler ^3 (dev local, d1, tail, deploy, secrets)
+   - Types        : @cloudflare/workers-types + @types/node
+   - Scripts      : tsx (ex. scripts/set-telegram-webhook.ts)
+
+ FRONTEND (dossier frontend/ : application separee)
+   - React ^18 + TypeScript + Vite ^5 (dev :5173, build -> dist/)
+   - Tailwind CSS ^3 + PostCSS + Autoprefixer (theme sombre perso)
+   - Icones       : lucide-react
+   - Navigation   : onglets d'etat (pas de routeur -> zero config redeploiement)
+   - Graphiques   : SVG/CSS maison (pas de lib lourde)
+   - Deploiement  : Cloudflare Pages (dist/) + VITE_API_URL vers le Worker
+   - Mode demo    : repli mock auto si API injoignable (bandeau MODE DEMO)
+
+ INFRA & SERVICES EXTERNES
+   - Cloudflare : Workers + D1 + Cron Triggers + Pages (comptes J0, 0 EUR)
+   - Telegram   : bot de controle (commandes + boutons HITL + KPI du soir)
+   - Paiements  : x402 via facilitateur Coinbase CDP (1k settles/mois gratuits),
+                  USDC sur Base ; off-ramp Coinbase (CASP MiCA) -> SEPA
+   - Sources F1 : API/GitHub (Algora, Gitcoin, Dework, Superteam), x402/Bazaar,
+                  RentAHuman, Upwork/Malt/ComeUp (lecture seule + import manuel)
+   - Fiscalite  : export ledger -> Waltio/Koinly (declaration FR)
+
+ VERSIONS EPINGLEES (voir package-lock.json racine + frontend/)
+   Node requis : >= 20 (teste en 22). Compat Workers : 2024-09-25.
+
+--------------------------------------------------------------------------------
+ 2. STRATEGIE
+--------------------------------------------------------------------------------
+ 2.1 STRATEGIE BUSINESS (spec section 1)
+   - Ne jamais attendre d'etre achete : l'agent VA CHERCHER des missions payees.
+   - F1 d'abord (revenu 100 % autonome sur sources agent-natives x402/Bazaar),
+     F2 ensuite (marge sur missions humaines, HITL obligatoire a chaque deal).
+   - Seuil de rentabilite F2 : marge nette >= 15 EUR sinon rejet automatique.
+   - Reserve litige 10 % sur chaque deal F2.
+   - Parite EUR~USDC 1:1 par defaut (parametrable plus tard).
+
+ 2.2 STRATEGIE ToS / CONFORMITE (spec section 3)
+   - Scanner/partout, soumettre/auto UNIQUEMENT si can_auto_submit = true.
+   - Refus par defaut (fail-closed) : plateforme inconnue = refus + HITL.
+   - Jamais de contournement anti-bot : si interdit, l'agent prepare le draft
+     exact et l'humain clique sur la plateforme.
+   - La matrice ne change que par migration SQL revue + test + doc (pas de
+     bouton magique). Re-verification trimestrielle visee (last_verified_at).
+
+ 2.3 STRATEGIE RISQUE / POLICY (spec section 7)
+   - 4 regles, zero exception : plafond SPEND (1 USDC/jour au depart), matrice
+     ToS, aucun trading par construction, freeze D1 lu a chaque action sortante.
+   - Le LLM PROPOSE, policy.ts DISPOSE. Aucune depense ni soumission interdite
+     decidable par le LLM seul.
+   - Freeze : /freeze = effet immediat sans redeploiement ; /unfreeze = double
+     confirmation (commande + bouton HITL).
+   - Timeouts HITL = refus (12 h defaut, 1 h pour unfreeze) ; sans reponse,
+     l'agent ne prend rien.
+
+ 2.4 STRATEGIE FINANCIERE (spec section 6)
+   - PAYTO recoit tout (cle JAMAIS sur serveur) ; OPS = admin symbolique ~2 USDC ;
+     SPEND = depenses agent sous plafonds.
+   - Anti self-dealing : wallets propres declares (HITL pour ajout), mouvements
+     internes requalifies (self_test/transfer), jamais comptes en revenu.
+   - Ledger append-only (jamais d'UPDATE financier) + idempotence (nonce/tx
+     UNIQUE -> zero double credit).
+   - KPI quotidien : Net = Revenu - (fees + paies F2 + couts API), envoye sur
+     Telegram + expose via /kpi.
+
+ 2.5 STRATEGIE DE BUILD (ordre suivi, spec section 11)
+   [x] 1. core/policy.ts (plafonds, ToS, no-trade, freeze)
+   [x] 2. core/ledger.ts + migrations D1 + anti self-dealing
+   [x] 3. Bot Telegram (/freeze, /status, HITL, KPI)
+   [x] 4. F1 scanner (9 connecteurs -> table missions)
+   [x] 5. F1 execution (apres approve Telegram)
+   [x] 6. F1 soumission (auto si ToS OK vs draft humain)
+   [x] 7. F2 pipeline (chiffrage -> HITL -> recrutement -> controle -> paie)
+   [x] 8. KPI quotidien + rapports
+   [x] 9. Connecteurs 2 (x402/Bazaar) et 3 (Malt/Upwork lecture seule)
+   [x] 10. Dashboard + docs + 48 tests
+
+ 2.6 STRATEGIE COMPTES / JALONS (spec section 12)
+   J0  : GitHub, Telegram, Cloudflare, wallets, Coinbase CDP (0 EUR)
+   J1  : Algora / Gitcoin / Dework + RentAHuman (client)
+   J5-J10 : Malt / ComeUp / Upwork (pro, KYC) -> activer les connecteurs RO
+   Avant fiat regulier : autoentrepreneur (SIRET, BNC) + banque dediee + Waltio
+   REGLE : pas de domaine payant, VPS ou LLM payant avant le 1er USDC externe.
+
+ 2.7 HORS SCOPE EXPLICITE (spec section 13 — ne jamais faire)
+   - Aucun trading (ni live ni paper), aucun module/route/cle d'exchange.
+   - Pas d'escrow maison, pas de detention de fonds tiers.
+   - Pas de contournement anti-bot. Pas de scraping Leboncoin/SeLoger p
+...[truncated 9126 chars]
